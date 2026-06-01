@@ -26,7 +26,7 @@ type Input struct {
 type Output struct {
 	IsTerminal     bool     `json:"isTerminal"`
 	TerminalStatus string   `json:"terminalStatus,omitempty"`
-	ReasonCodes    []string `json:"reasonCodes,omitempty"`
+	ReasonCodes    []string `json:"reasonCodes"`
 }
 
 func handler(ctx context.Context, in Input) (Output, error) {
@@ -89,7 +89,11 @@ func handler(ctx context.Context, in Input) (Output, error) {
 	}
 
 	if decision.Type != "TERMINAL" {
-		return Output{IsTerminal: false}, nil
+		return Output{IsTerminal: false, ReasonCodes: []string{}}, nil
+	}
+	reasonCodes := decision.ReasonCodes
+	if reasonCodes == nil {
+		reasonCodes = []string{}
 	}
 
 	prop.Status = decision.TerminalStatus
@@ -99,7 +103,7 @@ func handler(ctx context.Context, in Input) (Output, error) {
 	return Output{
 		IsTerminal:     true,
 		TerminalStatus: decision.TerminalStatus,
-		ReasonCodes:    decision.ReasonCodes,
+		ReasonCodes:    reasonCodes,
 	}, nil
 }
 

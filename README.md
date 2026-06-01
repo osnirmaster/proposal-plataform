@@ -137,6 +137,30 @@ AWS utilizados (Lambda, DynamoDB e Step Functions). Após executar `docker‑com
 os endpoints dos serviços ficam disponíveis em `http://localhost:4566`. Os handlers
 podem ser invocados manualmente utilizando o AWS CLI ou ferramentas de sua escolha.
 
+### Uso rápido com Makefile
+
+Foi adicionado um `Makefile` para facilitar o setup local:
+
+```bash
+# sobe o LocalStack
+make local-up
+
+# provisiona DynamoDB + Lambdas + State Machine + seed de proposta
+make local-setup
+
+# dispara uma execucao de teste
+make local-test
+
+# lista execucoes
+make local-list-exec
+
+# acompanha logs do LocalStack
+make local-logs
+
+# derruba o ambiente
+make local-down
+```
+
 ### Instruções de uso local
 
 1. Certifique‑se de ter o [Docker](https://docs.docker.com/get-docker/) instalado.

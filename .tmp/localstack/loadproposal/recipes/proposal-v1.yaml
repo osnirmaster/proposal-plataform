@@ -1,0 +1,42 @@
+journeyType: proposal
+journeyVersion: v1
+initialStep: KYC_CHECK
+
+steps:
+  - name: KYC_CHECK
+    execution: ASYNC
+    hookName: KYC
+    timeoutSeconds: 300
+    input:
+      provider: default-kyc
+    transitions:
+      APPROVED:
+        nextStep: CREATE_ACCOUNT
+      REJECTED:
+        terminalStatus: REJECTED
+        reasonCodes:
+          - KYC_REJECT
+      TIMED_OUT:
+        terminalStatus: REJECTED
+        reasonCodes:
+          - KYC_TIMEOUT
+      FAILED:
+        terminalStatus: REJECTED
+        reasonCodes:
+          - KYC_FAILED
+
+  - name: CREATE_ACCOUNT
+    execution: SYNC
+    input:
+      system: core-banking
+    transitions:
+      APPROVED:
+        terminalStatus: APPROVED
+      REJECTED:
+        terminalStatus: REJECTED
+        reasonCodes:
+          - ACCOUNT_CREATION_REJECTED
+      FAILED:
+        terminalStatus: REJECTED
+        reasonCodes:
+          - ACCOUNT_CREATION_FAILED

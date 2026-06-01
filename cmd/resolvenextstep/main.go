@@ -34,9 +34,9 @@ type StepDefinition struct {
 type Output struct {
 	Decision       string                 `json:"decision"` // ASYNC, SYNC, TERMINAL
 	Step           *StepDefinition        `json:"step,omitempty"`
-	Input          map[string]interface{} `json:"input,omitempty"`
+	Input          map[string]interface{} `json:"input"`
 	TerminalStatus string                 `json:"terminalStatus,omitempty"`
-	ReasonCodes    []string               `json:"reasonCodes,omitempty"`
+	ReasonCodes    []string               `json:"reasonCodes"`
 }
 
 // handler determina o próximo passo a partir da receita YAML carregada pelo loadproposal.
@@ -59,6 +59,9 @@ func handler(ctx context.Context, in Input) (Output, error) {
 		TerminalStatus: decision.TerminalStatus,
 		ReasonCodes:    decision.ReasonCodes,
 	}
+	if out.ReasonCodes == nil {
+		out.ReasonCodes = []string{}
+	}
 	if decision.Step != nil {
 		out.Step = &StepDefinition{
 			Name:           decision.Step.Name,
@@ -68,10 +71,9 @@ func handler(ctx context.Context, in Input) (Output, error) {
 			Action:         decision.Step.Action,
 			Retry:          decision.Step.Retry,
 		}
-		out.Input = decision.Step.Input
-		if out.Input == nil {
-			out.Input = map[string]interface{}{}
-		}
+	}
+	if out.Input == nil {
+		out.Input = map[string]interface{}{}
 	}
 	return out, nil
 }

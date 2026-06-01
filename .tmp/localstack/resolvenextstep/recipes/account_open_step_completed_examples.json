@@ -1,0 +1,85 @@
+{
+  "examples": [
+    {
+      "step": "KYC_CHECK",
+      "stepCompletedEvent": {
+        "tenantId": "tenant-001",
+        "proposalId": "prop-123",
+        "journeyType": "ACCOUNT_OPENING",
+        "journeyVersion": "2026-02-01",
+        "step": {
+          "name": "KYC_CHECK"
+        },
+        "outcome": "APPROVED",
+        "result": {
+          "body": {
+            "status": "APPROVED",
+            "score": 913,
+            "reference_id": "KYC-9f8a-001"
+          }
+        }
+      },
+      "mappedContextPatch": {
+        "kyc": {
+          "kycStatus": "APPROVED",
+          "kycScore": 913,
+          "kycReferenceId": "KYC-9f8a-001"
+        }
+      }
+    },
+    {
+      "step": "FRAUD_CHECK",
+      "stepCompletedEvent": {
+        "tenantId": "tenant-001",
+        "proposalId": "prop-123",
+        "journeyType": "ACCOUNT_OPENING",
+        "journeyVersion": "2026-02-01",
+        "step": {
+          "name": "FRAUD_CHECK"
+        },
+        "outcome": "APPROVED",
+        "result": {
+          "body": {
+            "status": "CLEAR",
+            "score": 0.03,
+            "analysis_id": "FRD-4ac2-778"
+          }
+        }
+      },
+      "mappedContextPatch": {
+        "fraud": {
+          "fraudStatus": "CLEAR",
+          "fraudScore": 0.03,
+          "analysisId": "FRD-4ac2-778"
+        }
+      }
+    },
+    {
+      "step": "SIGN_TERMS",
+      "stepCompletedEvent": {
+        "tenantId": "tenant-001",
+        "proposalId": "prop-123",
+        "journeyType": "ACCOUNT_OPENING",
+        "journeyVersion": "2026-02-01",
+        "step": {
+          "name": "SIGN_TERMS"
+        },
+        "outcome": "APPROVED",
+        "result": {
+          "body": {
+            "status": "SIGNED",
+            "signed_at": "2026-05-31T14:22:03Z",
+            "document_id": "DOC-TERM-2026-0001"
+          }
+        }
+      },
+      "mappedContextPatch": {
+        "signature": {
+          "signatureStatus": "SIGNED",
+          "signedAt": "2026-05-31T14:22:03Z",
+          "documentId": "DOC-TERM-2026-0001"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "journeyType": "ACCOUNT_OPENING",
+  "version": "2026-02-01",
+  "proposalSchema": {
+    "jsonSchemaRef": "s3://catalog/schemas/account_opening/v3.json"
+  },
+  "endpoints": {
+    "service://core-banking/account/create": {
+      "url": "http://localhost:8080/account/create",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  },
+  "stateModel": {
+    "initial": "DRAFT",
+    "transitions": [
+      {"from":"DRAFT","to":"IN_PROGRESS"},
+      {"from":"IN_PROGRESS","to":"PENDING_KYC"},
+      {"from":"PENDING_KYC","to":"PENDING_FRAUD"},
+      {"from":"PENDING_FRAUD","to":"PENDING_SIGNATURE"},
+      {"from":"PENDING_SIGNATURE","to":"PENDING_ACCOUNT_CREATION"},
+      {"from":"PENDING_ACCOUNT_CREATION","to":"APPROVED"},
+      {"from":"IN_PROGRESS","to":"REJECTED"},
+      {"from":"PENDING_FRAUD","to":"REJECTED"}
+    ]
+  },
+  "pipeline": [
+    {
+      "step": "KYC_CHECK",
+      "when": "context.customer.submitted == true",
+      "action": {
+        "type": "EVENT_HOOK",
+        "topic": "ProposalStepRequested",
+        "hookName": "KYC",
+        "typeDetails": {
+          "requestMapping": {
+            "customer_name": "$.context.person.nomeCompleto",
+            "document_id": "$.context.person.cpf",
+            "birth_date": "$.context.person.dataNascimento"
+          },
+          "responseMapping": {
+            "kycStatus": "$.body.status",
+            "kycScore": "$.body.score",
+            "kycReferenceId": "$.body.reference_id"
+          },
+          "responseTarget": "$.context.kyc"
+        }
+      },
+      "timeoutSeconds": 300,
+      "retry": {"maxAttempts": 3, "backoffSeconds": 10}
+    },
+    {
+      "step": "FRAUD_CHECK",
+      "when": "steps.KYC_CHECK == 'COMPLETED'",
+      "action": {
+        "type": "EVENT_HOOK",
+        "hookName": "FRAUD",
+        "typeDetails": {
+          "requestMapping": {
+            "customer_id": "$.context.person.cpf",
+            "proposal_id": "$.context.proposalId",
+            "channel": "$.context.channel"
+          },
+          "responseMapping": {
+            "fraudStatus": "$.body.status",
+            "fraudScore": "$.body.score",
+            "analysisId": "$.body.analysis_id"
+          },
+          "responseTarget": "$.context.fraud"
+        }
+      },
+      "timeoutSeconds": 120,
+      "retry": {"maxAttempts": 2, "backoffSeconds": 5}
+    },
+    {
+      "step": "SIGN_TERMS",
+      "when": "steps.FRAUD_CHECK == 'COMPLETED'",
+      "action": {
+        "type": "EVENT_HOOK",
+        "hookName": "SIGNATURE",
+        "typeDetails": {
+          "requestMapping": {
+            "customer_id": "$.context.person.cpf",
+            "proposal_id": "$.context.proposalId",
+            "terms_version": "$.context.offer.termsVersion"
+          },
+          "responseMapping": {
+            "signatureStatus": "$.body.status",
+            "signedAt": "$.body.signed_at",
+            "documentId": "$.body.document_id"
+          },
+          "responseTarget": "$.context.signature"
+        }
+      },
+      "timeoutSeconds": 86400
+    },
+    {
+      "step": "CREATE_ACCOUNT",
+      "when": "steps.SIGN_TERMS == 'COMPLETED'",
+      "action": {
+        "type": "INTEGRATION",
+        "typeDetails": {
+          "mode": "SYNC_HTTP",
+          "endpointRef": "service://core-banking/account/create",
+          "requestMapping": {
+            "customer_name": "$.context.person.nomeCompleto",
+            "document_id": "$.context.person.cpf",
+            "package_id": "$.context.offer.packageId"
+          },
+          "responseMapping": {
+            "accountId": "$.body.account_id",
+            "branch": "$.body.branch",
+            "creationDate": "$.body.created_at"
+          },
+          "responseTarget": "$.context.account"
+        }
+      },
+      "timeoutSeconds": 30,
+      "retry": {"maxAttempts": 3, "backoffSeconds": 2}
+    }
+  ]
+}

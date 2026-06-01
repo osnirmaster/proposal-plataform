@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   localstack:
-    image: localstack/localstack:1.5
+    image: localstack/localstack:latest
     container_name: proposal-platform-localstack
     ports:
       - "4566:4566"  # Porta para todos os serviços
