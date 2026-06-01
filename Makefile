@@ -9,7 +9,7 @@ export AWS_ACCESS_KEY_ID ?= test
 export AWS_SECRET_ACCESS_KEY ?= test
 export AWS_DEFAULT_REGION ?= $(AWS_REGION)
 
-.PHONY: local-up local-down local-logs local-setup local-status local-test local-list-exec
+.PHONY: local-up local-down local-logs local-setup local-status local-test local-list-exec local-watch
 
 local-up:
 	docker compose up -d localstack
@@ -44,3 +44,7 @@ local-list-exec:
 	  exit 1; \
 	fi; \
 	aws --endpoint-url $(AWS_ENDPOINT) stepfunctions list-executions --state-machine-arn "$$SM_ARN"
+
+local-watch:
+	chmod +x ./scripts/watch_execution.sh
+	AWS_ENDPOINT=$(AWS_ENDPOINT) AWS_REGION=$(AWS_REGION) SM_NAME=$(SM_NAME) ./scripts/watch_execution.sh
