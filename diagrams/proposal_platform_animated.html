@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Proposal Platform - Arquitetura Animada</title>
+  <style>
+    :root {
+      --bg: #f2f5fb;
+      --panel: #ffffff;
+      --ink: #1f2937;
+      --muted: #64748b;
+      --line: #dbe3ef;
+      --accent1: #2563eb;
+      --accent2: #0ea5e9;
+      --accent3: #7c3aed;
+      --accent4: #16a34a;
+      --accent5: #f59e0b;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 20% 10%, #e6efff 0%, transparent 40%),
+        radial-gradient(circle at 80% 80%, #ecfdf5 0%, transparent 45%),
+        var(--bg);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .board {
+      width: min(1220px, 100%);
+      border: 1px solid #d6dfec;
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: 0 20px 48px rgba(38, 51, 77, 0.12);
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    .phase-strip {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 2px 0 12px;
+    }
+
+    .phase-chip {
+      border: 1px solid #d7e2f1;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #475569;
+      background: #f8fbff;
+      font-weight: 600;
+    }
+
+    .board.phase-1 .phase-chip.p1,
+    .board.phase-2 .phase-chip.p2,
+    .board.phase-3 .phase-chip.p3,
+    .board.phase-4 .phase-chip.p4 {
+      border-color: #93c5fd;
+      background: #e8f1ff;
+      color: #1e40af;
+    }
+
+    h1 {
+      margin: 4px 0 14px;
+      font-size: clamp(20px, 2.4vw, 32px);
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0;
+    }
+
+    .layers {
+      display: grid;
+      grid-template-rows: 130px 320px 120px;
+      gap: 14px;
+      position: relative;
+    }
+
+    .layer {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+      background: linear-gradient(180deg, #fbfdff, #f8fbff);
+    }
+
+    .layer-title {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 600;
+      background: #f7faff;
+      padding: 0 8px;
+    }
+
+    .node {
+      position: absolute;
+      border: 1px solid #d7e2f1;
+      border-radius: 10px;
+      background: #fff;
+      padding: 10px 12px;
+      min-width: 130px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 8px 16px rgba(44, 62, 90, 0.08);
+      transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease, background .25s ease;
+    }
+
+    .node small {
+      display: block;
+      color: var(--muted);
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .cluster {
+      position: absolute;
+      inset: 36px 18px 16px;
+      border: 1px dashed #cdd9ea;
+      border-radius: 10px;
+    }
+
+    .status {
+      margin-top: 12px;
+      text-align: center;
+      color: #334155;
+      font-weight: 600;
+      min-height: 20px;
+      font-size: 14px;
+      animation: statusCycle 16s steps(1, end) infinite;
+    }
+
+    .status::after { content: "Fase 0: proposta carregada e aguardando decisão do próximo step"; }
+
+    @keyframes statusCycle {
+      0%, 20% { }
+      21%, 40% { }
+      41%, 60% { }
+      61%, 80% { }
+      81%, 100% { }
+    }
+
+    .status.phase-1::after { content: "Fase 1: step assíncrono solicitado (EVENT_HOOK): KYC_CHECK"; }
+    .status.phase-2::after { content: "Fase 2: callback recebido e ApplyStepResult persiste outcome + context patch"; }
+    .status.phase-3::after { content: "Fase 3: integração síncrona (SYNC_HTTP): CREATE_ACCOUNT com request/response mapping"; }
+    .status.phase-4::after { content: "Fase 4: proposta finalizada e status persistido em DynamoDB"; }
+
+    svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .flow {
+      fill: none;
+      stroke-width: 2.4;
+      stroke-dasharray: 8 8;
+      animation: dash 2s linear infinite;
+    }
+
+    .packet {
+      opacity: 0;
+      transition: opacity .3s ease;
+    }
+
+    .board.phase-1 .packet.p1 { opacity: 1; }
+    .board.phase-2 .packet.p2 { opacity: 1; }
+    .board.phase-3 .packet.p3 { opacity: 1; }
+    .board.phase-4 .packet.p4 { opacity: 1; }
+
+    .dot {
+      stroke: #ffffff;
+      stroke-width: 1.8;
+      filter: drop-shadow(0 1px 4px rgba(15, 23, 42, .35));
+    }
+
+    .f1 { stroke: var(--accent1); }
+    .f2 { stroke: var(--accent2); animation-delay: .2s; }
+    .f3 { stroke: var(--accent3); animation-delay: .4s; }
+    .f4 { stroke: var(--accent4); animation-delay: .6s; }
+    .f5 { stroke: var(--accent5); animation-delay: .8s; }
+
+    @keyframes dash {
+      to { stroke-dashoffset: -32; }
+    }
+
+    .pulse {
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .active-node {
+      animation: pulse 1.8s ease-in-out infinite;
+      border-color: #93c5fd;
+      background: #f7fbff;
+    }
+
+    .board.phase-1 .n-stepfunctions,
+    .board.phase-1 .n-resolvenextstep,
+    .board.phase-1 .n-requestasyncstep,
+    .board.phase-1 .n-eventbridge,
+    .board.phase-1 .n-external {
+      animation: pulse 1.8s ease-in-out infinite;
+      border-color: #c4b5fd;
+      background: #faf5ff;
+    }
+
+    .board.phase-2 .n-applystepresult,
+    .board.phase-2 .n-proposals,
+    .board.phase-2 .n-steps {
+      animation: pulse 1.8s ease-in-out infinite;
+      border-color: #fcd34d;
+      background: #fffbeb;
+    }
+
+    .board.phase-3 .n-stepfunctions,
+    .board.phase-3 .n-executesyncstep,
+    .board.phase-3 .n-corebanking,
+    .board.phase-3 .n-applystepresult {
+      animation: pulse 1.8s ease-in-out infinite;
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+
+    .board.phase-4 .n-markterminal,
+    .board.phase-4 .n-proposals,
+    .board.phase-4 .n-steps {
+      animation: pulse 1.8s ease-in-out infinite;
+      border-color: #7dd3fc;
+      background: #f0f9ff;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 8px 16px rgba(44, 62, 90, 0.08); }
+      50% { transform: scale(1.03); box-shadow: 0 14px 30px rgba(37, 99, 235, 0.22); }
+    }
+
+    @media (max-width: 980px) {
+      .board { padding: 14px; }
+      .layers { grid-template-rows: 160px 480px 140px; }
+      .node { font-size: 12px; min-width: 112px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="board" class="board">
+    <h1>Proposal Platform - Arquitetura Animada</h1>
+    <div class="phase-strip">
+      <div class="phase-chip">Fase 0: Boot</div>
+      <div class="phase-chip p1">Fase 1: Async Hook</div>
+      <div class="phase-chip p2">Fase 2: Callback + Persistência</div>
+      <div class="phase-chip p3">Fase 3: Sync HTTP</div>
+      <div class="phase-chip p4">Fase 4: Terminal</div>
+    </div>
+
+    <div class="layers">
+      <div class="layer">
+        <div class="layer-title">Camada 1: Entrada e Orquestração</div>
+        <div class="node n-api" style="left: 6%; top: 52px;">Canal / API<small>Entrada da proposta</small></div>
+        <div class="node n-stepfunctions active-node" style="left: 40%; top: 42px;">AWS Step Functions<small>State Machine</small></div>
+        <div class="node" style="right: 6%; top: 52px;">Catálogo CRD/DSL<small>recipes/account_open.json</small></div>
+      </div>
+
+      <div class="layer">
+        <div class="layer-title">Camada 2: Lambdas e Engine de Steps</div>
+        <div class="cluster"></div>
+        <div class="node n-loadproposal" style="left: 4%; top: 68px;">loadproposal<small>Carrega proposta + receita</small></div>
+        <div class="node n-resolvenextstep" style="left: 23%; top: 68px;">resolvenextstep<small>Resolve pipeline/when</small></div>
+        <div class="node n-requestasyncstep" style="left: 42%; top: 68px;">requestasyncstep<small>EVENT_HOOK + requestMapping</small></div>
+        <div class="node n-executesyncstep" style="left: 61%; top: 68px;">executesyncstep<small>SYNC_HTTP + mappings</small></div>
+        <div class="node n-applystepresult" style="left: 80%; top: 68px;">applystepresult<small>Persistência + contextPatch</small></div>
+        <div class="node n-markterminal" style="left: 80%; top: 12px;">markterminal<small>Status final</small></div>
+
+        <div class="node n-eventbridge" style="left: 14%; top: 198px;">EventBridge / Hooks<small>KYC, FRAUD, SIGNATURE</small></div>
+        <div class="node n-corebanking" style="left: 40%; top: 198px;">Core Banking API<small>service://core-banking</small></div>
+        <div class="node n-external" style="left: 68%; top: 198px;">Sistemas Externos<small>Callbacks StepCompleted</small></div>
+      </div>
+
+      <div class="layer">
+        <div class="layer-title">Camada 3: Dados</div>
+        <div class="node n-proposals" style="left: 30%; top: 48px;">DynamoDB - Proposals<small>status + context</small></div>
+        <div class="node n-steps" style="left: 56%; top: 48px;">DynamoDB - Proposal Steps<small>state + outcome + result</small></div>
+      </div>
+
+      <svg viewBox="0 0 1220 570" preserveAspectRatio="none" aria-hidden="true">
+        <path id="p-api-sf" class="flow f1" d="M160,80 C270,80 320,80 460,80" />
+        <path id="p-crd-sf" class="flow f2" d="M1020,80 C920,80 820,80 700,80" />
+        <path id="p-sf-load" class="flow f1" d="M520,100 C520,150 180,168 180,205" />
+        <path id="p-sf-resolve" class="flow f2" d="M520,100 C520,160 355,168 355,205" />
+        <path id="p-sf-req" class="flow f3" d="M520,100 C520,160 540,168 540,205" />
+        <path id="p-sf-sync" class="flow f4" d="M520,100 C520,160 725,168 725,205" />
+        <path id="p-sf-apply" class="flow f5" d="M520,100 C520,160 910,168 910,205" />
+
+        <path id="p-req-hook" class="flow f3" d="M540,232 C540,270 320,305 260,370" />
+        <path id="p-sync-core" class="flow f4" d="M725,232 C725,275 590,315 500,370" />
+        <path id="p-hook-callback" class="flow f5" d="M260,370 C430,370 640,370 840,370" />
+        <path id="p-ext-apply" class="flow f5" d="M840,370 C930,360 955,290 910,232" />
+        <path id="p-core-apply" class="flow f4" d="M500,370 C680,360 820,320 910,232" />
+
+        <path id="p-apply-proposals" class="flow f1" d="M910,232 C940,320 900,470 510,510" />
+        <path id="p-load-proposals" class="flow f2" d="M230,232 C230,320 280,460 510,510" />
+        <path id="p-apply-steps" class="flow f4" d="M910,232 C930,325 900,475 820,510" />
+        <path id="p-markterminal-proposals" class="flow f2" d="M970,170 C1030,300 930,490 510,510" />
+
+        <g class="packet p1">
+          <circle class="dot" r="6" fill="#7c3aed">
+            <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-sf-req" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#7c3aed">
+            <animateMotion dur="2.8s" begin=".6s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-req-hook" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#f59e0b">
+            <animateMotion dur="2.8s" begin="1.2s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-hook-callback" />
+            </animateMotion>
+          </circle>
+        </g>
+
+        <g class="packet p2">
+          <circle class="dot" r="6" fill="#f59e0b">
+            <animateMotion dur="2.4s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-ext-apply" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#2563eb">
+            <animateMotion dur="2.4s" begin=".8s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-apply-proposals" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#16a34a">
+            <animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-apply-steps" />
+            </animateMotion>
+          </circle>
+        </g>
+
+        <g class="packet p3">
+          <circle class="dot" r="6" fill="#16a34a">
+            <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-sf-sync" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#16a34a">
+            <animateMotion dur="2.8s" begin=".8s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-sync-core" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#16a34a">
+            <animateMotion dur="2.8s" begin="1.6s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-core-apply" />
+            </animateMotion>
+          </circle>
+        </g>
+
+        <g class="packet p4">
+          <circle class="dot" r="6" fill="#0ea5e9">
+            <animateMotion dur="2.2s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-apply-proposals" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#0ea5e9">
+            <animateMotion dur="2.2s" begin=".7s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-apply-steps" />
+            </animateMotion>
+          </circle>
+          <circle class="dot" r="6" fill="#0ea5e9">
+            <animateMotion dur="2.2s" begin="1.2s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#p-markterminal-proposals" />
+            </animateMotion>
+          </circle>
+        </g>
+      </svg>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const phases = ["", "phase-1", "phase-2", "phase-3", "phase-4"];
+    let idx = 0;
+    setInterval(() => {
+      statusEl.className = "status " + phases[idx];
+      boardEl.className = "board " + phases[idx];
+      idx = (idx + 1) % phases.length;
+    }, 3200);
+  </script>
+</body>
+</html>

@@ -23,7 +23,8 @@
         "journeyType.$": "$.journeyType",
         "journeyVersion.$": "$.journeyVersion",
         "proposal.$": "$.loadResult.proposal",
-        "steps.$": "$.loadResult.steps"
+        "steps.$": "$.loadResult.steps",
+        "recipe.$": "$.loadResult.recipe"
       },
       "ResultPath": "$.nextStep",
       "Next": "StepDecision"
@@ -34,7 +35,7 @@
         {
           "Variable": "$.nextStep.decision",
           "StringEquals": "TERMINAL",
-          "Next": "MarkTerminal"
+          "Next": "MarkResolvedTerminal"
         },
         {
           "Variable": "$.nextStep.decision",
@@ -56,6 +57,7 @@
         "tenantId.$": "$.tenantId",
         "proposalId.$": "$.proposalId",
         "journeyType.$": "$.journeyType",
+        "journeyVersion.$": "$.journeyVersion",
         "step.$": "$.nextStep.step",
         "input.$": "$.nextStep.input"
       },
@@ -70,6 +72,7 @@
         "tenantId.$": "$.tenantId",
         "proposalId.$": "$.proposalId",
         "journeyType.$": "$.journeyType",
+        "journeyVersion.$": "$.journeyVersion",
         "step.$": "$.nextStep.step",
         "input.$": "$.nextStep.input",
         "taskToken.$": "$$.Task.Token"
@@ -96,6 +99,7 @@
         "tenantId.$": "$.tenantId",
         "proposalId.$": "$.proposalId",
         "journeyType.$": "$.journeyType",
+        "journeyVersion.$": "$.journeyVersion",
         "step.$": "$.nextStep.step",
         "outcome": "TIMED_OUT",
         "result": {
@@ -112,6 +116,7 @@
         "tenantId.$": "$.tenantId",
         "proposalId.$": "$.proposalId",
         "journeyType.$": "$.journeyType",
+        "journeyVersion.$": "$.journeyVersion",
         "step.$": "$.nextStep.step",
         "outcome": "FAILED",
         "result": {
@@ -128,6 +133,7 @@
         "tenantId.$": "$.tenantId",
         "proposalId.$": "$.proposalId",
         "journeyType.$": "$.journeyType",
+        "journeyVersion.$": "$.journeyVersion",
         "step.$": "$.nextStep.step",
         "outcome.$": "$.syncResult.outcome",
         "result.$": "$.syncResult.result"
@@ -141,12 +147,24 @@
         {
           "Variable": "$.applyResult.isTerminal",
           "BooleanEquals": true,
-          "Next": "MarkTerminal"
+          "Next": "MarkAppliedTerminal"
         }
       ],
       "Default": "LoadProposal"
     },
-    "MarkTerminal": {
+    "MarkResolvedTerminal": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:markterminal",
+      "Parameters": {
+        "tenantId.$": "$.tenantId",
+        "proposalId.$": "$.proposalId",
+        "journeyType.$": "$.journeyType",
+        "terminalStatus.$": "$.nextStep.terminalStatus",
+        "reasonCodes.$": "$.nextStep.reasonCodes"
+      },
+      "End": true
+    },
+    "MarkAppliedTerminal": {
       "Type": "Task",
       "Resource": "arn:aws:lambda:us-east-1:000000000000:function:markterminal",
       "Parameters": {

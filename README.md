@@ -25,6 +25,8 @@ proposal-platform/
 ├── internal/
 │   └── database/
 │       └── dynamodb.go        # Conexão e utilidades para DynamoDB
+├── recipes/
+│   └── proposal-v1.yaml       # Receita DSL/YAML da jornada de proposta
 ├── state_machine.asl.json     # Definição do State Machine (ASL) para Step Functions
 ├── docker-compose.yml         # Serviços locais (LocalStack com Lambda, DynamoDB, Step Functions)
 └── README.md                  # Este documento
@@ -44,6 +46,80 @@ definidas (e.g. `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` e
 * **requestasyncstep**: Marca um step como em execução e publica um evento (em um ambiente real isso seria uma chamada ao Amazon EventBridge). Nesta implementação local, apenas grava o estado.
 * **applystepresult**: Consolida o resultado de um step, persistindo o outcome e atualizando o status da proposta.
 * **markterminal**: Define o status final da proposta (aprovada ou rejeitada).
+
+### Receita DSL/YAML/JSON
+
+A jornada da proposta pode ser definida em YAML ou JSON. O exemplo legado está em
+`recipes/proposal-v1.yaml`, e o exemplo em formato CRD/DSL está em
+`recipes/account_open.json`. O arquivo descreve:
+
+* `journeyType` e `journeyVersion`: identificam qual receita será carregada.
+* `initialStep`: primeiro step da jornada.
+* `steps`: catálogo de etapas, informando se a execução é `SYNC` ou `ASYNC`.
+* `transitions`: mapa de outcomes possíveis (`APPROVED`, `REJECTED`, `FAILED`, etc.)
+  para o próximo step ou para um status terminal.
+* `pipeline`: lista declarativa de steps com condição `when`, ação e timeout.
+* `endpoints`: catálogo de endpoints externos referenciados por `endpointRef`.
+* `requestMapping`: de/para para montar o payload enviado à integração.
+* `responseMapping`: de/para para extrair campos da resposta.
+* `responseTarget`: caminho do `proposal.context` onde o resultado mapeado será salvo.
+
+Exemplo simplificado:
+
+```yaml
+journeyType: proposal
+journeyVersion: v1
+initialStep: KYC_CHECK
+
+steps:
+  - name: KYC_CHECK
+    execution: ASYNC
+    hookName: KYC
+    timeoutSeconds: 300
+    transitions:
+      APPROVED:
+        nextStep: CREATE_ACCOUNT
+      REJECTED:
+        terminalStatus: REJECTED
+        reasonCodes:
+          - KYC_REJECT
+```
+
+O `loadproposal` carrega a proposta, os steps atuais e a receita YAML. Em seguida,
+o `resolvenextstep` usa essa receita para decidir o próximo step a executar ou o
+status terminal da proposta.
+
+Exemplo de integração HTTP no formato CRD/DSL:
+
+```json
+{
+  "step": "CREATE_ACCOUNT",
+  "when": "steps.SIGN_TERMS == 'COMPLETED'",
+  "action": {
+    "type": "INTEGRATION",
+    "typeDetails": {
+      "mode": "SYNC_HTTP",
+      "endpointRef": "service://core-banking/account/create",
+      "requestMapping": {
+        "customer_name": "$.context.person.nomeCompleto",
+        "document_id": "$.context.person.cpf",
+        "package_id": "$.context.offer.packageId"
+      },
+      "responseMapping": {
+        "accountId": "$.body.account_id",
+        "branch": "$.body.branch",
+        "creationDate": "$.body.created_at"
+      },
+      "responseTarget": "$.context.account"
+    }
+  }
+}
+```
+
+Nesse fluxo, o `executeSyncStep` aplica o `requestMapping`, chama o endpoint
+resolvido por `endpointRef`, aplica o `responseMapping` sobre a resposta HTTP e
+devolve um `contextPatch`. O `applyStepResult` persiste esse patch no
+`proposal.context`.
 
 ### State Machine (ASL)
 

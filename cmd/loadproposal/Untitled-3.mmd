@@ -1,0 +1,86 @@
+---
+query: "ainda estou com o erro Syntax error in text: Trying to inactivate an inactive
+  participant (DB)"
+references:
+  - |+
+    Reference: <skills>
+    Here is a list of skills that contain domain specific knowledge on a variety of topics.
+    Each skill comes with a description of the topic and a file path that contains the detailed instructions.
+    When a user asks you to perform a task that falls within the domain of a skill, use the #tool:read/readFile tool to acquire the full instructions from the file URI.
+    <skill>
+    <name>project-setup-info-local</name>
+    <description>Comprehensive setup steps to help the user create complete project structures in a VS Code workspace; this tool is designed for full project initialization and scaffolding, not for creating individual files. When to use this tool: user wants to create a new complete project from scratch; setting up entire project frameworks (TypeScript projects, React apps, Node.js servers, etc.); initializing Model Context Protocol (MCP) servers with full structure; creating VS Code extensions with proper scaffolding; setting up Next.js, Vite, or other framework-based projects; user asks for "new project", "create a workspace", "set up a [framework] project"; need to establish a complete development environment with dependencies, config files, and folder structure. When NOT to use this tool: creating single files or small code snippets; adding individual files to existing projects; making modifications to existing codebases; user asks to "create a file" or "add a component"; simple code examples or demonstrations; debugging </description>
+    <file>/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/copilot/assets/prompts/skills/project-setup-info-local/SKILL.md</file>
+    </skill>
+    <skill>
+    <name>get-search-view-results</name>
+    <description>Get the current search results from the Search view in VS Code</description>
+    <file>/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/copilot/assets/prompts/skills/get-search-view-results/SKILL.md</file>
+    </skill>
+    <skill>
+    <name>agent-customization</name>
+    <description>**WORKFLOW SKILL** — Create, update, review, fix, or debug VS Code agent customization files (.instructions.md, .prompt.md, .agent.md, SKILL.md, copilot-instructions.md, AGENTS.md). USE FOR: saving coding preferences; troubleshooting why instructions/skills/agents are ignored or not invoked; configuring applyTo patterns; defining tool restrictions; creating custom agent modes or specialized workflows; packaging domain knowledge; fixing YAML frontmatter syntax. DO NOT USE FOR: general coding questions (use default agent); runtime debugging or error diagnosis; MCP server configuration (use MCP docs directly); VS Code extension development. INVOKES: file system tools (read/write customization files), ask-questions tool (interview user for requirements), subagents for codebase exploration. FOR SINGLE OPERATIONS: For quick YAML frontmatter fixes or creating a single file from a known pattern, edit the file directly — no skill needed.</description>
+    <file>/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/copilot/assets/prompts/skills/agent-customization/SKILL.md</file>
+    </skill>
+    </skills>
+
+
+    <agents>
+    Here is a list of agents that can be used when running a subagent.
+    Each agent has optionally a description with the agent's purpose and expertise. When asked to run a subagent, choose the most appropriate agent from this list.
+    Use the #tool:agent/runSubagent tool with the agent name to run the subagent.
+    <agent>
+    <name>Explore</name>
+    <description>Fast read-only codebase exploration and Q&A subagent. Prefer over manually chaining multiple search and file-reading operations to avoid cluttering the main conversation. Safe to call in parallel. Specify thoroughness: quick, medium, or thorough.</description>
+    <argumentHint>Describe WHAT you're looking for and desired thoroughness (quick/medium/thorough)</argumentHint>
+    </agent>
+    </agents>
+
+generationTime: 2026-06-01T01:30:56.794Z
+---
+sequenceDiagram
+    participant Lambda as AWS Lambda
+    participant Handler as Handler Function
+    participant DBClient as Database Client
+    participant DB as Database
+
+    Lambda->>Handler: Invoke with Input<br/>(TenantID, ProposalID, etc)
+
+
+    Note over Handler: Initialize database connection
+    Handler->>DBClient: New(ctx)
+
+    
+    alt DB Client Creation Success
+        DBClient-->>Handler: Database client ready
+
+        
+        Note over Handler: Retrieve proposal
+        Handler->>DB: GetProposal(ctx, TenantID, ProposalID)
+        
+        alt Proposal Found
+            Note over DB: Proposal retrieved
+            
+            Note over Handler: Retrieve journey steps (non-fatal)
+            Handler->>DB: GetSteps(ctx, ProposalID)
+            
+            alt Steps Found
+                Note over DB: Steps retrieved
+            else Steps Not Found
+                Note over DB: Error - empty list
+            end
+            
+            Handler->>Handler: Create Output with<br/>Proposal + Steps
+            Handler-->>Lambda: Return Output{Proposal, Steps}
+            
+        else Proposal Not Found
+            Note over DB: Proposal not found
+            Handler-->>Lambda: Return error
+        end
+        
+    else DB Client Creation Failed
+        DBClient-->>Handler: Error
+        Handler->>Handler: Log error
+        Handler-->>Lambda: Return error
+    end
+    
