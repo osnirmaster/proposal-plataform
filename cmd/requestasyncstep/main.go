@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -15,12 +16,13 @@ import (
 
 // Input descreve a solicitação de execução assíncrona de um step.
 type Input struct {
-	TenantID    string                 `json:"tenantId"`
-	ProposalID  string                 `json:"proposalId"`
-	JourneyType string                 `json:"journeyType"`
-	Step        map[string]interface{} `json:"step"`
-	Input       map[string]interface{} `json:"input"`
-	TaskToken   string                 `json:"taskToken"`
+	TenantID       string                 `json:"tenantId"`
+	ProposalID     string                 `json:"proposalId"`
+	JourneyType    string                 `json:"journeyType"`
+	JourneyVersion string                 `json:"journeyVersion"`
+	Step           map[string]interface{} `json:"step"`
+	Input          map[string]interface{} `json:"input"`
+	TaskToken      string                 `json:"taskToken"`
 }
 
 // Output é devolvido imediatamente para Step Functions, mas normalmente
@@ -40,12 +42,25 @@ func handler(ctx context.Context, in Input) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
-	requestPayload := in.Input
-	if len(stepDef.Action.TypeDetails.RequestMapping) > 0 {
-		proposal, err := db.GetProposal(ctx, in.TenantID, in.ProposalID)
+	proposal, err := db.GetProposal(ctx, in.TenantID, in.ProposalID)
+	if err != nil {
+		return Output{}, err
+	}
+	if stepDef.ProposalStatusOnStart != "" {
+		journeyRecipe, err := recipe.Load(in.JourneyType, in.JourneyVersion)
 		if err != nil {
 			return Output{}, err
 		}
+		if !journeyRecipe.CanTransition(proposal.Status, stepDef.ProposalStatusOnStart) {
+			return Output{}, fmt.Errorf("invalid proposal status transition: %s -> %s", proposal.Status, stepDef.ProposalStatusOnStart)
+		}
+		proposal.Status = stepDef.ProposalStatusOnStart
+		if err := db.PutProposal(ctx, proposal); err != nil {
+			return Output{}, err
+		}
+	}
+	requestPayload := in.Input
+	if len(stepDef.Action.TypeDetails.RequestMapping) > 0 {
 		requestPayload, err = mapping.Apply(map[string]interface{}{
 			"context": proposal.Context,
 			"input":   in.Input,

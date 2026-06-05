@@ -59,6 +59,19 @@ func handler(ctx context.Context, in Input) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
+	if step.ProposalStatusOnStart != "" {
+		journeyRecipe, err := recipe.Load(in.JourneyType, in.JourneyVersion)
+		if err != nil {
+			return Output{}, err
+		}
+		if !journeyRecipe.CanTransition(proposal.Status, step.ProposalStatusOnStart) {
+			return Output{}, fmt.Errorf("invalid proposal status transition: %s -> %s", proposal.Status, step.ProposalStatusOnStart)
+		}
+		proposal.Status = step.ProposalStatusOnStart
+		if err := db.PutProposal(ctx, proposal); err != nil {
+			return Output{}, err
+		}
+	}
 
 	source := map[string]interface{}{
 		"context": proposal.Context,

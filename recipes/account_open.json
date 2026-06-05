@@ -23,13 +23,17 @@
       {"from":"PENDING_SIGNATURE","to":"PENDING_ACCOUNT_CREATION"},
       {"from":"PENDING_ACCOUNT_CREATION","to":"APPROVED"},
       {"from":"IN_PROGRESS","to":"REJECTED"},
-      {"from":"PENDING_FRAUD","to":"REJECTED"}
+      {"from":"PENDING_KYC","to":"REJECTED"},
+      {"from":"PENDING_FRAUD","to":"REJECTED"},
+      {"from":"PENDING_SIGNATURE","to":"REJECTED"},
+      {"from":"PENDING_ACCOUNT_CREATION","to":"REJECTED"}
     ]
   },
   "pipeline": [
     {
       "step": "KYC_CHECK",
       "when": "context.customer.submitted == true",
+      "proposalStatusOnStart": "PENDING_KYC",
       "action": {
         "type": "EVENT_HOOK",
         "topic": "ProposalStepRequested",
@@ -49,11 +53,30 @@
         }
       },
       "timeoutSeconds": 300,
-      "retry": {"maxAttempts": 3, "backoffSeconds": 10}
+      "retry": {"maxAttempts": 3, "backoffSeconds": 10},
+      "transitions": {
+        "APPROVED": {
+          "nextStep": "FRAUD_CHECK",
+          "proposalStatus": "PENDING_FRAUD"
+        },
+        "REJECTED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["KYC_REJECTED"]
+        },
+        "FAILED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["KYC_FAILED"]
+        },
+        "TIMED_OUT": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["KYC_TIMEOUT"]
+        }
+      }
     },
     {
       "step": "FRAUD_CHECK",
       "when": "steps.KYC_CHECK == 'COMPLETED'",
+      "proposalStatusOnStart": "PENDING_FRAUD",
       "action": {
         "type": "EVENT_HOOK",
         "hookName": "FRAUD",
@@ -72,11 +95,30 @@
         }
       },
       "timeoutSeconds": 120,
-      "retry": {"maxAttempts": 2, "backoffSeconds": 5}
+      "retry": {"maxAttempts": 2, "backoffSeconds": 5},
+      "transitions": {
+        "APPROVED": {
+          "nextStep": "SIGN_TERMS",
+          "proposalStatus": "PENDING_SIGNATURE"
+        },
+        "REJECTED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["FRAUD_REJECTED"]
+        },
+        "FAILED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["FRAUD_FAILED"]
+        },
+        "TIMED_OUT": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["FRAUD_TIMEOUT"]
+        }
+      }
     },
     {
       "step": "SIGN_TERMS",
       "when": "steps.FRAUD_CHECK == 'COMPLETED'",
+      "proposalStatusOnStart": "PENDING_SIGNATURE",
       "action": {
         "type": "EVENT_HOOK",
         "hookName": "SIGNATURE",
@@ -94,11 +136,30 @@
           "responseTarget": "$.context.signature"
         }
       },
-      "timeoutSeconds": 86400
+      "timeoutSeconds": 86400,
+      "transitions": {
+        "APPROVED": {
+          "nextStep": "CREATE_ACCOUNT",
+          "proposalStatus": "PENDING_ACCOUNT_CREATION"
+        },
+        "REJECTED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["SIGNATURE_REJECTED"]
+        },
+        "FAILED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["SIGNATURE_FAILED"]
+        },
+        "TIMED_OUT": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["SIGNATURE_TIMEOUT"]
+        }
+      }
     },
     {
       "step": "CREATE_ACCOUNT",
       "when": "steps.SIGN_TERMS == 'COMPLETED'",
+      "proposalStatusOnStart": "PENDING_ACCOUNT_CREATION",
       "action": {
         "type": "INTEGRATION",
         "typeDetails": {
@@ -118,7 +179,24 @@
         }
       },
       "timeoutSeconds": 30,
-      "retry": {"maxAttempts": 3, "backoffSeconds": 2}
+      "retry": {"maxAttempts": 3, "backoffSeconds": 2},
+      "transitions": {
+        "APPROVED": {
+          "terminalStatus": "APPROVED"
+        },
+        "REJECTED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["ACCOUNT_CREATION_REJECTED"]
+        },
+        "FAILED": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["ACCOUNT_CREATION_FAILED"]
+        },
+        "TIMED_OUT": {
+          "terminalStatus": "REJECTED",
+          "reasonCodes": ["ACCOUNT_CREATION_TIMEOUT"]
+        }
+      }
     }
   ]
 }

@@ -1,185 +1,189 @@
 {
-  "Comment": "Generic proposal workflow (Lambda-first). This definition can be imported into AWS Step Functions.",
-  "StartAt": "LoadProposal",
-  "States": {
-    "LoadProposal": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:loadproposal",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "journeyVersion.$": "$.journeyVersion"
-      },
-      "ResultPath": "$.loadResult",
-      "Next": "ResolveNextStep"
-    },
-    "ResolveNextStep": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:resolvenextstep",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "journeyVersion.$": "$.journeyVersion",
-        "proposal.$": "$.loadResult.proposal",
-        "steps.$": "$.loadResult.steps",
-        "recipe.$": "$.loadResult.recipe"
-      },
-      "ResultPath": "$.nextStep",
-      "Next": "StepDecision"
-    },
-    "StepDecision": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Variable": "$.nextStep.decision",
-          "StringEquals": "TERMINAL",
-          "Next": "MarkResolvedTerminal"
+    "Comment": "Generic proposal workflow (Lambda-first). This definition can be imported into AWS Step Functions.",
+    "StartAt": "LoadProposal",
+    "States": {
+        "LoadProposal": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:loadproposal",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "journeyVersion.$": "$.journeyVersion"
+            },
+            "ResultPath": "$.loadResult",
+            "Next": "ResolveNextStep"
         },
-        {
-          "Variable": "$.nextStep.decision",
-          "StringEquals": "SYNC",
-          "Next": "ExecuteSyncStep"
+        "ResolveNextStep": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:resolvenextstep",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "journeyVersion.$": "$.journeyVersion",
+                "proposal.$": "$.loadResult.proposal",
+                "steps.$": "$.loadResult.steps",
+                "recipe.$": "$.loadResult.recipe"
+            },
+            "ResultPath": "$.nextStep",
+            "Next": "StepDecision"
         },
-        {
-          "Variable": "$.nextStep.decision",
-          "StringEquals": "ASYNC",
-          "Next": "RequestAsyncStep"
-        }
-      ],
-      "Default": "FailBadDecision"
-    },
-    "ExecuteSyncStep": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:executesyncstep",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "journeyVersion.$": "$.journeyVersion",
-        "step.$": "$.nextStep.step",
-        "input.$": "$.nextStep.input"
-      },
-      "ResultPath": "$.syncResult",
-      "Next": "ApplyStepResult"
-    },
-    "RequestAsyncStep": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:requestasyncstep",
-      "TimeoutSecondsPath": "$.nextStep.step.timeoutSeconds",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "journeyVersion.$": "$.journeyVersion",
-        "step.$": "$.nextStep.step",
-        "input.$": "$.nextStep.input",
-        "taskToken.$": "$$.Task.Token"
-      },
-      "ResultPath": "$.asyncResult",
-      "Next": "ApplyStepResult",
-      "Catch": [
-        {
-          "ErrorEquals": ["States.Timeout"],
-          "ResultPath": "$.asyncError",
-          "Next": "HandleAsyncTimeout"
+        "StepDecision": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.nextStep.decision",
+                    "StringEquals": "TERMINAL",
+                    "Next": "MarkResolvedTerminal"
+                },
+                {
+                    "Variable": "$.nextStep.decision",
+                    "StringEquals": "SYNC",
+                    "Next": "ExecuteSyncStep"
+                },
+                {
+                    "Variable": "$.nextStep.decision",
+                    "StringEquals": "ASYNC",
+                    "Next": "RequestAsyncStep"
+                }
+            ],
+            "Default": "HandleAsyncFailure"
         },
-        {
-          "ErrorEquals": ["States.TaskFailed"],
-          "ResultPath": "$.asyncError",
-          "Next": "HandleAsyncFailure"
+        "HandleAsyncFailure": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:applystepresult",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "journeyVersion.$": "$.journeyVersion",
+                "step.$": "$.nextStep.step",
+                "outcome": "FAILED",
+                "result": {
+                    "error.$": "$.asyncError"
+                }
+            },
+            "ResultPath": "$.applyResult",
+            "Next": "FailBadDecision"
+        },
+        "ExecuteSyncStep": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:executesyncstep",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "journeyVersion.$": "$.journeyVersion",
+                "step.$": "$.nextStep.step",
+                "input.$": "$.nextStep.input"
+            },
+            "ResultPath": "$.syncResult",
+            "Next": "ApplyStepResult"
+        },
+        "RequestAsyncStep": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:requestasyncstep",
+            "TimeoutSecondsPath": "$.nextStep.step.timeoutSeconds",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "journeyVersion.$": "$.journeyVersion",
+                "step.$": "$.nextStep.step",
+                "input.$": "$.nextStep.input",
+                "taskToken.$": "$$.Task.Token"
+            },
+            "ResultPath": "$.asyncResult",
+            "Next": "ApplyStepResult",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.Timeout"
+                    ],
+                    "ResultPath": "$.asyncError",
+                    "Next": "HandleAsyncTimeout"
+                },
+                {
+                    "ErrorEquals": [
+                        "States.TaskFailed"
+                    ],
+                    "ResultPath": "$.asyncError",
+                    "Next": "CheckIfDone"
+                }
+            ]
+        },
+        "HandleAsyncTimeout": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:applystepresult",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "journeyVersion.$": "$.journeyVersion",
+                "step.$": "$.nextStep.step",
+                "outcome": "TIMED_OUT",
+                "result": {
+                    "error.$": "$.asyncError"
+                }
+            },
+            "ResultPath": "$.applyResult",
+            "Next": "CheckIfDone"
+        },
+        "ApplyStepResult": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:applystepresult",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "journeyVersion.$": "$.journeyVersion",
+                "step.$": "$.nextStep.step",
+                "outcome.$": "$.syncResult.outcome",
+                "result.$": "$.syncResult.result"
+            },
+            "ResultPath": "$.applyResult",
+            "Next": "CheckIfDone"
+        },
+        "CheckIfDone": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.applyResult.isTerminal",
+                    "BooleanEquals": true,
+                    "Next": "MarkAppliedTerminal"
+                }
+            ],
+            "Default": "LoadProposal"
+        },
+        "MarkResolvedTerminal": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:markterminal",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "terminalStatus.$": "$.nextStep.terminalStatus",
+                "reasonCodes.$": "$.nextStep.reasonCodes"
+            },
+            "End": true
+        },
+        "MarkAppliedTerminal": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:000000000000:function:markterminal",
+            "Parameters": {
+                "tenantId.$": "$.tenantId",
+                "proposalId.$": "$.proposalId",
+                "journeyType.$": "$.journeyType",
+                "terminalStatus.$": "$.applyResult.terminalStatus",
+                "reasonCodes.$": "$.applyResult.reasonCodes"
+            },
+            "End": true
+        },
+        "FailBadDecision": {
+            "Type": "Fail",
+            "Error": "BadDecision",
+            "Cause": "ResolveNextStep returned an unsupported decision value"
         }
-      ]
-    },
-    "HandleAsyncTimeout": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:applystepresult",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "journeyVersion.$": "$.journeyVersion",
-        "step.$": "$.nextStep.step",
-        "outcome": "TIMED_OUT",
-        "result": {
-          "error.$": "$.asyncError"
-        }
-      },
-      "ResultPath": "$.applyResult",
-      "Next": "CheckIfDone"
-    },
-    "HandleAsyncFailure": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:applystepresult",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "journeyVersion.$": "$.journeyVersion",
-        "step.$": "$.nextStep.step",
-        "outcome": "FAILED",
-        "result": {
-          "error.$": "$.asyncError"
-        }
-      },
-      "ResultPath": "$.applyResult",
-      "Next": "CheckIfDone"
-    },
-    "ApplyStepResult": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:applystepresult",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "journeyVersion.$": "$.journeyVersion",
-        "step.$": "$.nextStep.step",
-        "outcome.$": "$.syncResult.outcome",
-        "result.$": "$.syncResult.result"
-      },
-      "ResultPath": "$.applyResult",
-      "Next": "CheckIfDone"
-    },
-    "CheckIfDone": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Variable": "$.applyResult.isTerminal",
-          "BooleanEquals": true,
-          "Next": "MarkAppliedTerminal"
-        }
-      ],
-      "Default": "LoadProposal"
-    },
-    "MarkResolvedTerminal": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:markterminal",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "terminalStatus.$": "$.nextStep.terminalStatus",
-        "reasonCodes.$": "$.nextStep.reasonCodes"
-      },
-      "End": true
-    },
-    "MarkAppliedTerminal": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:000000000000:function:markterminal",
-      "Parameters": {
-        "tenantId.$": "$.tenantId",
-        "proposalId.$": "$.proposalId",
-        "journeyType.$": "$.journeyType",
-        "terminalStatus.$": "$.applyResult.terminalStatus",
-        "reasonCodes.$": "$.applyResult.reasonCodes"
-      },
-      "End": true
-    },
-    "FailBadDecision": {
-      "Type": "Fail",
-      "Error": "BadDecision",
-      "Cause": "ResolveNextStep returned an unsupported decision value"
     }
-  }
 }

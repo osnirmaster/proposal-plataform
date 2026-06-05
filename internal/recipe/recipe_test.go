@@ -77,7 +77,7 @@ func TestResolvePipelineReturnsIntegrationStep(t *testing.T) {
 	r := testPipelineRecipe()
 
 	decision, err := r.Resolve([]CompletedStep{
-		{Name: "KYC_CHECK", State: "COMPLETED"},
+		{Name: "KYC_CHECK", State: "COMPLETED", Outcome: "APPROVED"},
 	}, map[string]interface{}{
 		"customer": map[string]interface{}{
 			"submitted": true,
@@ -93,8 +93,47 @@ func TestResolvePipelineReturnsIntegrationStep(t *testing.T) {
 	if decision.Step == nil || decision.Step.Name != "CREATE_ACCOUNT" {
 		t.Fatalf("decision.Step = %#v, want CREATE_ACCOUNT", decision.Step)
 	}
+	if decision.ProposalStatus != "PENDING_ACCOUNT_CREATION" {
+		t.Fatalf("decision.ProposalStatus = %q, want PENDING_ACCOUNT_CREATION", decision.ProposalStatus)
+	}
 	if decision.Step.Action.TypeDetails.Endpoint.URL != "http://localhost:8080/account/create" {
 		t.Fatalf("endpoint url = %q, want resolved endpoint", decision.Step.Action.TypeDetails.Endpoint.URL)
+	}
+}
+
+func TestResolvePipelineReturnsTerminalOnRejectedOutcome(t *testing.T) {
+	r := testPipelineRecipe()
+
+	decision, err := r.Resolve([]CompletedStep{
+		{Name: "KYC_CHECK", State: "COMPLETED", Outcome: "REJECTED"},
+	}, map[string]interface{}{
+		"customer": map[string]interface{}{
+			"submitted": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+
+	if decision.Type != "TERMINAL" {
+		t.Fatalf("decision.Type = %q, want TERMINAL", decision.Type)
+	}
+	if decision.TerminalStatus != "REJECTED" {
+		t.Fatalf("decision.TerminalStatus = %q, want REJECTED", decision.TerminalStatus)
+	}
+	if len(decision.ReasonCodes) != 1 || decision.ReasonCodes[0] != "KYC_REJECTED" {
+		t.Fatalf("decision.ReasonCodes = %#v, want KYC_REJECTED", decision.ReasonCodes)
+	}
+}
+
+func TestCanTransitionUsesStateModel(t *testing.T) {
+	r := testPipelineRecipe()
+
+	if !r.CanTransition("PENDING_KYC", "PENDING_ACCOUNT_CREATION") {
+		t.Fatal("CanTransition(PENDING_KYC, PENDING_ACCOUNT_CREATION) = false, want true")
+	}
+	if r.CanTransition("APPROVED", "PENDING_KYC") {
+		t.Fatal("CanTransition(APPROVED, PENDING_KYC) = true, want false")
 	}
 }
 
@@ -127,6 +166,15 @@ func testPipelineRecipe() Recipe {
 	return Recipe{
 		JourneyType:    "ACCOUNT_OPENING",
 		JourneyVersion: "2026-02-01",
+		StateModel: StateModel{
+			Initial: "IN_PROGRESS",
+			Transitions: []StateTransition{
+				{From: "IN_PROGRESS", To: "PENDING_KYC"},
+				{From: "PENDING_KYC", To: "PENDING_ACCOUNT_CREATION"},
+				{From: "PENDING_ACCOUNT_CREATION", To: "APPROVED"},
+				{From: "PENDING_KYC", To: "REJECTED"},
+			},
+		},
 		Endpoints: map[string]Endpoint{
 			"service://core-banking/account/create": {
 				URL:    "http://localhost:8080/account/create",
@@ -142,6 +190,16 @@ func testPipelineRecipe() Recipe {
 					HookName: "KYC",
 				},
 				TimeoutSeconds: 300,
+				Transitions: map[string]Transition{
+					"APPROVED": {
+						NextStep:       "CREATE_ACCOUNT",
+						ProposalStatus: "PENDING_ACCOUNT_CREATION",
+					},
+					"REJECTED": {
+						TerminalStatus: "REJECTED",
+						ReasonCodes:    []string{"KYC_REJECTED"},
+					},
+				},
 			},
 			{
 				Step: "CREATE_ACCOUNT",
@@ -158,6 +216,13 @@ func testPipelineRecipe() Recipe {
 							"accountId": "$.body.account_id",
 						},
 						ResponseTarget: "$.context.account",
+					},
+				},
+				Transitions: map[string]Transition{
+					"APPROVED": {TerminalStatus: "APPROVED"},
+					"FAILED": {
+						TerminalStatus: "REJECTED",
+						ReasonCodes:    []string{"ACCOUNT_CREATION_FAILED"},
 					},
 				},
 			},

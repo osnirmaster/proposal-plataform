@@ -22,7 +22,17 @@ type Recipe struct {
 	Pipeline       []PipelineStep         `json:"pipeline" yaml:"pipeline"`
 	Endpoints      map[string]Endpoint    `json:"endpoints,omitempty" yaml:"endpoints,omitempty"`
 	ProposalSchema map[string]interface{} `json:"proposalSchema,omitempty" yaml:"proposalSchema,omitempty"`
-	StateModel     map[string]interface{} `json:"stateModel,omitempty" yaml:"stateModel,omitempty"`
+	StateModel     StateModel             `json:"stateModel,omitempty" yaml:"stateModel,omitempty"`
+}
+
+type StateModel struct {
+	Initial     string            `json:"initial,omitempty" yaml:"initial,omitempty"`
+	Transitions []StateTransition `json:"transitions,omitempty" yaml:"transitions,omitempty"`
+}
+
+type StateTransition struct {
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
 }
 
 type StepDefinition struct {
@@ -35,11 +45,13 @@ type StepDefinition struct {
 }
 
 type PipelineStep struct {
-	Step           string `json:"step" yaml:"step"`
-	When           string `json:"when" yaml:"when"`
-	Action         Action `json:"action" yaml:"action"`
-	TimeoutSeconds int    `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
-	Retry          Retry  `json:"retry,omitempty" yaml:"retry,omitempty"`
+	Step                  string                `json:"step" yaml:"step"`
+	When                  string                `json:"when" yaml:"when"`
+	ProposalStatusOnStart string                `json:"proposalStatusOnStart,omitempty" yaml:"proposalStatusOnStart,omitempty"`
+	Action                Action                `json:"action" yaml:"action"`
+	TimeoutSeconds        int                   `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+	Retry                 Retry                 `json:"retry,omitempty" yaml:"retry,omitempty"`
+	Transitions           map[string]Transition `json:"transitions,omitempty" yaml:"transitions,omitempty"`
 }
 
 type Action struct {
@@ -71,22 +83,25 @@ type Endpoint struct {
 
 type Transition struct {
 	NextStep       string   `json:"nextStep,omitempty" yaml:"nextStep,omitempty"`
+	ProposalStatus string   `json:"proposalStatus,omitempty" yaml:"proposalStatus,omitempty"`
 	TerminalStatus string   `json:"terminalStatus,omitempty" yaml:"terminalStatus,omitempty"`
 	ReasonCodes    []string `json:"reasonCodes,omitempty" yaml:"reasonCodes,omitempty"`
 }
 
 type StepExecution struct {
-	Name           string                 `json:"name"`
-	HookName       string                 `json:"hookName,omitempty"`
-	TimeoutSeconds int                    `json:"timeoutSeconds,omitempty"`
-	Input          map[string]interface{} `json:"input,omitempty"`
-	Action         Action                 `json:"action,omitempty"`
-	Retry          Retry                  `json:"retry,omitempty"`
+	Name                  string                 `json:"name"`
+	HookName              string                 `json:"hookName,omitempty"`
+	TimeoutSeconds        int                    `json:"timeoutSeconds,omitempty"`
+	Input                 map[string]interface{} `json:"input,omitempty"`
+	ProposalStatusOnStart string                 `json:"proposalStatusOnStart,omitempty"`
+	Action                Action                 `json:"action,omitempty"`
+	Retry                 Retry                  `json:"retry,omitempty"`
 }
 
 type Decision struct {
 	Type           string
 	Step           *StepExecution
+	ProposalStatus string
 	TerminalStatus string
 	ReasonCodes    []string
 }
@@ -189,6 +204,21 @@ func (r Recipe) Resolve(completed []CompletedStep, proposalContext ...map[string
 	}
 }
 
+func (r Recipe) CanTransition(from, to string) bool {
+	if to == "" || strings.EqualFold(from, to) {
+		return true
+	}
+	if from == "" {
+		return strings.EqualFold(r.StateModel.Initial, to)
+	}
+	for _, transition := range r.StateModel.Transitions {
+		if strings.EqualFold(transition.From, from) && strings.EqualFold(transition.To, to) {
+			return true
+		}
+	}
+	return len(r.StateModel.Transitions) == 0
+}
+
 func (r Recipe) Validate() error {
 	if len(r.Pipeline) > 0 {
 		return r.validatePipeline()
@@ -240,8 +270,23 @@ func (r Recipe) resolvePipeline(completed []CompletedStep, proposalContext map[s
 		completedByStep[strings.ToUpper(step.Name)] = step
 	}
 
+	var proposalStatus string
 	for _, step := range r.Pipeline {
-		if isCompleted(completedByStep[strings.ToUpper(step.Step)]) {
+		completedStep := completedByStep[strings.ToUpper(step.Step)]
+		if isCompleted(completedStep) {
+			transition, ok := findTransition(step.Transitions, completedStep.Outcome)
+			if !ok {
+				return Decision{}, fmt.Errorf("outcome %q is not mapped for step %q", completedStep.Outcome, step.Step)
+			}
+			if transition.TerminalStatus != "" {
+				return Decision{
+					Type:           "TERMINAL",
+					ProposalStatus: firstNonEmpty(transition.ProposalStatus, transition.TerminalStatus),
+					TerminalStatus: transition.TerminalStatus,
+					ReasonCodes:    transition.ReasonCodes,
+				}, nil
+			}
+			proposalStatus = transition.ProposalStatus
 			continue
 		}
 		matches, err := evaluateWhen(step.When, completedByStep, proposalContext)
@@ -261,13 +306,15 @@ func (r Recipe) resolvePipeline(completed []CompletedStep, proposalContext map[s
 			decisionType = "ASYNC"
 		}
 		return Decision{
-			Type: decisionType,
+			Type:           decisionType,
+			ProposalStatus: proposalStatus,
 			Step: &StepExecution{
-				Name:           step.Step,
-				HookName:       action.HookName,
-				TimeoutSeconds: step.TimeoutSeconds,
-				Action:         action,
-				Retry:          step.Retry,
+				Name:                  step.Step,
+				HookName:              action.HookName,
+				TimeoutSeconds:        step.TimeoutSeconds,
+				ProposalStatusOnStart: step.ProposalStatusOnStart,
+				Action:                action,
+				Retry:                 step.Retry,
 			},
 		}, nil
 	}
@@ -281,10 +328,12 @@ func (r Recipe) validatePipeline() error {
 			return errors.New("endpoints must define non-empty refs and urls")
 		}
 	}
+	seen := map[string]bool{}
 	for _, step := range r.Pipeline {
 		if step.Step == "" {
 			return errors.New("pipeline step is required")
 		}
+		seen[strings.ToUpper(step.Step)] = true
 		actionType := strings.ToUpper(step.Action.Type)
 		if actionType != "EVENT_HOOK" && actionType != "INTEGRATION" {
 			return fmt.Errorf("step %q action.type must be EVENT_HOOK or INTEGRATION", step.Step)
@@ -298,6 +347,19 @@ func (r Recipe) validatePipeline() error {
 			}
 			if _, ok := r.Endpoints[step.Action.TypeDetails.EndpointRef]; !ok && len(r.Endpoints) > 0 {
 				return fmt.Errorf("step %q references unknown endpoint %q", step.Step, step.Action.TypeDetails.EndpointRef)
+			}
+		}
+	}
+	for _, step := range r.Pipeline {
+		for outcome, transition := range step.Transitions {
+			if outcome == "" {
+				return fmt.Errorf("step %q has an empty outcome transition", step.Step)
+			}
+			if transition.NextStep != "" && !seen[strings.ToUpper(transition.NextStep)] {
+				return fmt.Errorf("step %q points to unknown nextStep %q", step.Step, transition.NextStep)
+			}
+			if transition.NextStep != "" && transition.TerminalStatus != "" {
+				return fmt.Errorf("step %q outcome %q cannot define both nextStep and terminalStatus", step.Step, outcome)
 			}
 		}
 	}

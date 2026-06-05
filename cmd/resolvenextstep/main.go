@@ -22,12 +22,13 @@ type Input struct {
 
 // StepDefinition descreve o step a ser executado.
 type StepDefinition struct {
-	Name           string                 `json:"name"`
-	HookName       string                 `json:"hookName,omitempty"`
-	TimeoutSeconds int                    `json:"timeoutSeconds,omitempty"`
-	Input          map[string]interface{} `json:"input,omitempty"`
-	Action         recipe.Action          `json:"action,omitempty"`
-	Retry          recipe.Retry           `json:"retry,omitempty"`
+	Name                  string                 `json:"name"`
+	HookName              string                 `json:"hookName,omitempty"`
+	TimeoutSeconds        int                    `json:"timeoutSeconds,omitempty"`
+	Input                 map[string]interface{} `json:"input,omitempty"`
+	ProposalStatusOnStart string                 `json:"proposalStatusOnStart,omitempty"`
+	Action                recipe.Action          `json:"action,omitempty"`
+	Retry                 recipe.Retry           `json:"retry,omitempty"`
 }
 
 // Output define a decisão do próximo passo.
@@ -64,12 +65,13 @@ func handler(ctx context.Context, in Input) (Output, error) {
 	}
 	if decision.Step != nil {
 		out.Step = &StepDefinition{
-			Name:           decision.Step.Name,
-			HookName:       decision.Step.HookName,
-			TimeoutSeconds: decision.Step.TimeoutSeconds,
-			Input:          decision.Step.Input,
-			Action:         decision.Step.Action,
-			Retry:          decision.Step.Retry,
+			Name:                  decision.Step.Name,
+			HookName:              decision.Step.HookName,
+			TimeoutSeconds:        decision.Step.TimeoutSeconds,
+			Input:                 decision.Step.Input,
+			ProposalStatusOnStart: decision.Step.ProposalStatusOnStart,
+			Action:                decision.Step.Action,
+			Retry:                 decision.Step.Retry,
 		}
 	}
 	if out.Input == nil {

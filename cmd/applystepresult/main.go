@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -89,6 +90,15 @@ func handler(ctx context.Context, in Input) (Output, error) {
 	}
 
 	if decision.Type != "TERMINAL" {
+		if decision.ProposalStatus != "" {
+			if !journeyRecipe.CanTransition(prop.Status, decision.ProposalStatus) {
+				return Output{}, fmt.Errorf("invalid proposal status transition: %s -> %s", prop.Status, decision.ProposalStatus)
+			}
+			prop.Status = decision.ProposalStatus
+			if err := db.PutProposal(ctx, prop); err != nil {
+				return Output{}, err
+			}
+		}
 		return Output{IsTerminal: false, ReasonCodes: []string{}}, nil
 	}
 	reasonCodes := decision.ReasonCodes
@@ -96,7 +106,14 @@ func handler(ctx context.Context, in Input) (Output, error) {
 		reasonCodes = []string{}
 	}
 
-	prop.Status = decision.TerminalStatus
+	targetStatus := decision.TerminalStatus
+	if decision.ProposalStatus != "" {
+		targetStatus = decision.ProposalStatus
+	}
+	if !journeyRecipe.CanTransition(prop.Status, targetStatus) {
+		return Output{}, fmt.Errorf("invalid proposal status transition: %s -> %s", prop.Status, targetStatus)
+	}
+	prop.Status = targetStatus
 	if err := db.PutProposal(ctx, prop); err != nil {
 		return Output{}, err
 	}

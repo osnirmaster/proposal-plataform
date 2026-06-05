@@ -1,0 +1,180 @@
+sequenceDiagram
+    autonumber
+
+    actor User as Cliente/API
+    participant SFN as AWS Step Functions
+    participant Load as Lambda loadproposal
+    participant Resolve as Lambda resolvenextstep
+    participant Async as Lambda requestasyncstep
+    participant Sync as Lambda executesyncstep
+    participant Apply as Lambda applystepresult
+    participant Terminal as Lambda markterminal
+    participant DB as DynamoDB
+    participant Recipe as internal/recipe.go
+    participant Mapping as internal/mapping.go
+    participant Hook as EventBridge/Hooks externos
+    participant Core as Core Banking HTTP API
+
+    User->>SFN: StartExecution(tenantId, proposalId, journeyType, journeyVersion)
+
+    rect rgb(238, 246, 255)
+        Note over SFN,Recipe: LoadProposal
+        SFN->>Load: Invoke handler(Input)
+        Load->>DB: database.New(ctx)
+        DB-->>Load: Client
+        Load->>DB: GetProposal(ctx, tenantId, proposalId)
+        DB-->>Load: Proposal{status, context}
+        Load->>DB: GetSteps(ctx, proposalId)
+        DB-->>Load: []Step
+        Load->>Recipe: recipe.Load(journeyType, journeyVersion)
+        Recipe->>Recipe: readRecipeFile(...)
+        Recipe->>Recipe: yaml.Unmarshal(account_open.json)
+        Recipe->>Recipe: Validate()
+        Recipe-->>Load: Recipe{pipeline, endpoints, transitions}
+        Load-->>SFN: loadResult{proposal, steps, recipe}
+    end
+
+    loop Enquanto houver proximo step
+        rect rgb(245, 243, 255)
+            Note over SFN,Recipe: ResolveNextStep
+            SFN->>Resolve: Invoke handler(loadResult)
+            Resolve->>Resolve: make([]CompletedStep, 0, len(steps))
+            Resolve->>Resolve: append Step{Name, State, Outcome}
+            Resolve->>Recipe: Recipe.Resolve(completed, proposal.Context)
+            Recipe->>Recipe: resolvePipeline(...)
+            Recipe->>Recipe: evaluateWhen(step.when, steps, context)
+            Recipe->>Recipe: findTransition(step.transitions, outcome)
+            Recipe-->>Resolve: Decision{Type, Step, TerminalStatus, ReasonCodes}
+            Resolve-->>SFN: nextStep{decision, step, input, reasonCodes}
+        end
+
+        alt decision == ASYNC
+            rect rgb(255, 247, 237)
+                Note over SFN,Hook: RequestAsyncStep / EVENT_HOOK
+                SFN->>Async: Invoke handler(nextStep.step, nextStep.input, taskToken)
+                Async->>DB: database.New(ctx)
+                DB-->>Async: Client
+                Async->>Async: decodeStep(step)
+
+                opt step.action.typeDetails.requestMapping existe
+                    Async->>DB: GetProposal(ctx, tenantId, proposalId)
+                    DB-->>Async: Proposal{context}
+                    Async->>Mapping: Apply({context, input}, requestMapping)
+                    Mapping->>Mapping: JMESPath Search("$.context...")
+                    Mapping-->>Async: requestPayload
+                end
+
+                Async->>DB: PutStep(State=RUNNING, Result.request)
+                DB-->>Async: OK
+                Async-->>Hook: Publica evento com hookName, requestPayload, taskToken
+                Async-->>SFN: asyncResult{outcome=PENDING}
+            end
+
+            Note over Hook,SFN: Em producao, o addon externo retorna StepCompleted com outcome e body
+            Hook-->>SFN: Callback/StepCompleted(outcome, result.body)
+
+            rect rgb(240, 253, 244)
+                Note over SFN,Recipe: ApplyStepResult apos retorno async
+                SFN->>Apply: Invoke handler(step, outcome, result)
+                Apply->>DB: database.New(ctx)
+                DB-->>Apply: Client
+                Apply->>DB: PutStep(State=COMPLETED, Outcome, Result)
+                DB-->>Apply: OK
+                Apply->>DB: GetProposal(ctx, tenantId, proposalId)
+                DB-->>Apply: Proposal{context}
+
+                opt result.contextPatch existe
+                    Apply->>Mapping: MergeAtPath(proposal.Context, "$.context", contextPatch)
+                    Mapping-->>Apply: context atualizado
+                    Apply->>DB: PutProposal(proposal com context atualizado)
+                    DB-->>Apply: OK
+                end
+
+                Apply->>DB: GetSteps(ctx, proposalId)
+                DB-->>Apply: []Step
+                Apply->>Recipe: recipe.Load(journeyType, journeyVersion)
+                Recipe-->>Apply: Recipe
+                Apply->>Recipe: Recipe.Resolve(completed, proposal.Context)
+                Recipe-->>Apply: Decision
+
+                alt decision.Type == TERMINAL
+                    Apply->>DB: PutProposal(status=TerminalStatus)
+                    DB-->>Apply: OK
+                    Apply-->>SFN: applyResult{isTerminal=true, terminalStatus, reasonCodes}
+                else ainda ha proximos steps
+                    Apply-->>SFN: applyResult{isTerminal=false, reasonCodes=[]}
+                end
+            end
+
+        else decision == SYNC
+            rect rgb(236, 253, 245)
+                Note over SFN,Core: ExecuteSyncStep / INTEGRATION SYNC_HTTP
+                SFN->>Sync: Invoke handler(nextStep.step, nextStep.input)
+                Sync->>Sync: decodeStep(step)
+                Sync->>DB: database.New(ctx)
+                DB-->>Sync: Client
+                Sync->>DB: GetProposal(ctx, tenantId, proposalId)
+                DB-->>Sync: Proposal{context}
+                Sync->>Mapping: Apply({context, input}, requestMapping)
+                Mapping->>Mapping: JMESPath Search("$.context...")
+                Mapping-->>Sync: requestPayload
+                Sync->>Core: callHTTP(endpoint, requestPayload)
+                Core-->>Sync: HTTP status + response body
+                Sync->>Mapping: Apply({body}, responseMapping)
+                Mapping-->>Sync: mappedResponse
+                Sync->>Mapping: MergeAtPath(contextPatch, responseTarget, mappedResponse)
+                Mapping-->>Sync: contextPatch
+                Sync-->>SFN: syncResult{outcome, result{request,response,contextPatch}}
+            end
+
+            rect rgb(240, 253, 244)
+                Note over SFN,Recipe: ApplyStepResult apos retorno sync
+                SFN->>Apply: Invoke handler(step, syncResult.outcome, syncResult.result)
+                Apply->>DB: PutStep(State=COMPLETED, Outcome, Result)
+                DB-->>Apply: OK
+                Apply->>DB: GetProposal(ctx, tenantId, proposalId)
+                DB-->>Apply: Proposal{context}
+                Apply->>Mapping: MergeAtPath(proposal.Context, "$.context", contextPatch)
+                Mapping-->>Apply: context atualizado
+                Apply->>DB: PutProposal(proposal com context atualizado)
+                DB-->>Apply: OK
+                Apply->>DB: GetSteps(ctx, proposalId)
+                DB-->>Apply: []Step
+                Apply->>Recipe: recipe.Load(journeyType, journeyVersion)
+                Recipe-->>Apply: Recipe
+                Apply->>Recipe: Recipe.Resolve(completed, proposal.Context)
+                Recipe-->>Apply: Decision
+                Apply-->>SFN: applyResult{isTerminal, terminalStatus, reasonCodes}
+            end
+
+        else decision == TERMINAL
+            rect rgb(254, 242, 242)
+                Note over SFN,Terminal: MarkResolvedTerminal
+                SFN->>Terminal: Invoke handler(terminalStatus, reasonCodes)
+                Terminal->>DB: database.New(ctx)
+                DB-->>Terminal: Client
+                Terminal->>DB: GetProposal(ctx, tenantId, proposalId)
+                DB-->>Terminal: Proposal
+                Terminal->>Terminal: prop.Status = terminalStatus
+                Terminal->>DB: PutProposal(prop)
+                DB-->>Terminal: OK
+                Terminal-->>SFN: proposal atualizada
+            end
+        end
+
+        alt applyResult.isTerminal == true
+            rect rgb(254, 242, 242)
+                Note over SFN,Terminal: MarkAppliedTerminal
+                SFN->>Terminal: Invoke handler(applyResult.terminalStatus, applyResult.reasonCodes)
+                Terminal->>DB: GetProposal(ctx, tenantId, proposalId)
+                DB-->>Terminal: Proposal
+                Terminal->>DB: PutProposal(status final)
+                DB-->>Terminal: OK
+                Terminal-->>SFN: proposal atualizada
+            end
+        else applyResult.isTerminal == false
+            SFN->>SFN: Volta para LoadProposal
+        end
+    end
+
+    SFN-->>User: ExecutionSucceeded / ExecutionFailed

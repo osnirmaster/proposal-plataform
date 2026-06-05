@@ -153,6 +153,23 @@ seed_sample_proposal() {
   local now
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+  log "Limpando steps antigos da proposta de exemplo ($proposal)"
+  local step_keys
+  step_keys="$(aws_local dynamodb query \
+    --table-name proposal_steps \
+    --key-condition-expression "pk = :pk" \
+    --expression-attribute-values "{\":pk\":{\"S\":\"$proposal\"}}" \
+    --query "Items[].{pk:pk.S,sk:sk.S}" \
+    --output json)"
+  echo "$step_keys" | jq -c '.[]' | while read -r key; do
+    local pk sk
+    pk="$(echo "$key" | jq -r '.pk')"
+    sk="$(echo "$key" | jq -r '.sk')"
+    aws_local dynamodb delete-item \
+      --table-name proposal_steps \
+      --key "{\"pk\":{\"S\":\"$pk\"},\"sk\":{\"S\":\"$sk\"}}" >/dev/null
+  done
+
   log "Inserindo proposta de exemplo ($tenant / $proposal)"
   aws_local dynamodb put-item \
     --table-name proposals \
